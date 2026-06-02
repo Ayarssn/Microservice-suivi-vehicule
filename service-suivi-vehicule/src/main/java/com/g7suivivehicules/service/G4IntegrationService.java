@@ -34,7 +34,7 @@ public class G4IntegrationService {
 
     private final RestTemplate restTemplate;
 
-    @Value("${g4.integration.url:http://api-gateway:8080/api/g4}")
+    @Value("${g4.integration.url:http://g4-coordination:8084/api}")
     private String g4Url;
 
     /**
