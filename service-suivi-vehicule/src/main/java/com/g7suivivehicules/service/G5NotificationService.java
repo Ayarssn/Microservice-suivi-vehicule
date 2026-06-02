@@ -2,6 +2,9 @@ package com.g7suivivehicules.service;
 
 import com.g7suivivehicules.dto.G5NotificationRequest;
 import com.g7suivivehicules.entity.Alert;
+import com.g7suivivehicules.entity.AlertStatus;
+import com.g7suivivehicules.entity.PendingAlert;
+import com.g7suivivehicules.repository.PendingAlertRepository;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import io.github.resilience4j.timelimiter.annotation.TimeLimiter;
@@ -15,6 +18,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
@@ -27,6 +31,7 @@ import java.util.concurrent.CompletableFuture;
 public class G5NotificationService {
 
     private final RestTemplate restTemplate;
+    private final PendingAlertRepository pendingAlertRepository;
 
     @Value("${g5.notification.url}")
     private String g5Url;
@@ -82,8 +87,32 @@ public class G5NotificationService {
         }
     }
 
+    /**
+     * FALLBACK G5 — Alerte conducteur
+     * Déclenché si G5 est injoignable après 3 tentatives ou si le circuit est OPEN.
+     * On stocke l'alerte en base (pending_alerts) pour réenvoi automatique dès que G5 remonte.
+     */
     private CompletableFuture<Void> notifierConducteurFallback(Alert alert, Exception e) {
-        log.warn("[G5Notification] Circuit breaker activé - Notification fallback pour véhicule {}", alert.getVehiculeId());
+        log.warn("[G5][FALLBACK] G5 injoignable pour véhicule {} (raison: {}) — stockage local PENDING",
+                alert.getVehiculeId(), e.getMessage());
+
+        String message = genererMessageConducteur(alert);
+        String priority = determinerPriorite(alert.getTypeAlert());
+
+        PendingAlert pending = PendingAlert.builder()
+                .vehiculeId(alert.getVehiculeId().toString())
+                .typeAnomalie(alert.getTypeAlert().name())
+                .message("[ALERTE CONDUCTEUR] " + message)
+                .priority(priority)
+                .payloadJson("{\"eventType\":\"VEHICULE_ALERTE_CONDUCTEUR\",\"vehiculeId\":\"" + alert.getVehiculeId() + "\"}") 
+                .createdAt(LocalDateTime.now())
+                .status(AlertStatus.PENDING)
+                .tentatives(0)
+                .build();
+
+        pendingAlertRepository.save(pending);
+        log.info("[G5][FALLBACK] Alerte sauvegardée en DB avec id={} (sera renvoyée automatiquement)", pending.getId());
+
         return CompletableFuture.completedFuture(null);
     }
 
@@ -200,14 +229,52 @@ public class G5NotificationService {
         }
     }
 
+    /**
+     * FALLBACK G5 — Notification d'enregistrement de véhicule
+     * Stocke une PendingAlert pour réenvoi ultérieur.
+     */
     private CompletableFuture<Void> notifierVehiculeEnregistreFallback(com.g7suivivehicules.dto.VehiculeResponse vehicule, Exception e) {
-        log.warn("[G5Notification] Circuit breaker activé - Fallback enregistrement pour : {}", vehicule.getImmatriculation());
+        log.warn("[G5][FALLBACK] G5 injoignable pour enregistrement véhicule {} — stockage local PENDING",
+                vehicule.getImmatriculation());
+
+        PendingAlert pending = PendingAlert.builder()
+                .vehiculeId(vehicule.getId().toString())
+                .typeAnomalie("VEHICULE_ENREGISTRE")
+                .message("Notification d'enregistrement non envoyée pour : " + vehicule.getImmatriculation())
+                .priority("NORMAL")
+                .payloadJson("{\"eventType\":\"VEHICULE_ENREGISTRE\",\"immatriculation\":\"" + vehicule.getImmatriculation() + "\"}") 
+                .createdAt(LocalDateTime.now())
+                .status(AlertStatus.PENDING)
+                .tentatives(0)
+                .build();
+
+        pendingAlertRepository.save(pending);
+        log.info("[G5][FALLBACK] Notification enregistrement sauvegardée en DB avec id={}", pending.getId());
+
         return CompletableFuture.completedFuture(null);
     }
 
+    /**
+     * FALLBACK G5 — Log admin
+     * Stocke une PendingAlert pour réenvoi ultérieur.
+     */
     private CompletableFuture<Void> notifierLogAdminFallback(String logLevel, String message, Exception e) {
-        log.warn("[G5Notification] Circuit breaker activé - Notification log fallback - Level: {}", logLevel);
-        // Optionnel: loguer le message localement
+        log.warn("[G5][FALLBACK] G5 injoignable pour log admin [{}] — stockage local PENDING", logLevel);
+
+        PendingAlert pending = PendingAlert.builder()
+                .vehiculeId("ADMIN")
+                .typeAnomalie("LOG_" + logLevel.toUpperCase())
+                .message("[LOG ADMIN][" + logLevel + "] " + message)
+                .priority(determinePriorityFromLogLevel(logLevel))
+                .payloadJson("{\"eventType\":\"LOG_ALERT_ADMIN\",\"logLevel\":\"" + logLevel + "\"}") 
+                .createdAt(LocalDateTime.now())
+                .status(AlertStatus.PENDING)
+                .tentatives(0)
+                .build();
+
+        pendingAlertRepository.save(pending);
+        log.info("[G5][FALLBACK] Log admin sauvegardé en DB avec id={}", pending.getId());
+
         return CompletableFuture.completedFuture(null);
     }
 

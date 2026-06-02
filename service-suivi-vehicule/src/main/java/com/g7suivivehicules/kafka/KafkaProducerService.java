@@ -6,6 +6,9 @@ import com.g7suivivehicules.dto.G8VehiculeStatusDTO;
 import com.g7suivivehicules.dto.G9IncidentEventDTO;
 import com.g7suivivehicules.dto.VehiculeRegisteredEvent;
 import com.g7suivivehicules.entity.Alert;
+import com.g7suivivehicules.entity.AlertStatus;
+import com.g7suivivehicules.entity.PendingIncident;
+import com.g7suivivehicules.repository.PendingIncidentRepository;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.concurrent.ListenableFuture;
 
 import java.time.ZoneOffset;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -28,6 +32,7 @@ import java.util.concurrent.TimeoutException;
 public class KafkaProducerService {
 
     private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final PendingIncidentRepository pendingIncidentRepository;
 
     @Value("${kafka.topic.anomalie}")
     private String topicAnomalieG4;
@@ -231,7 +236,66 @@ public class KafkaProducerService {
         }
     }
 
+    /**
+     * FALLBACK Kafka G9 — Incident
+     * Si Kafka (ou G9) est indisponible, on stocke l'incident localement
+     * dans pending_incidents pour un retry automatique toutes les 30s.
+     */
     private void publierVersG9Fallback(Alert alert, Exception e) {
-        log.warn("[KafkaProducer] Circuit breaker activé - Incident non envoyé pour véhicule {}", alert.getVehiculeId());
+        log.warn("[Kafka][FALLBACK] Kafka/G9 injoignable pour véhicule {} (raison: {}) — stockage local PENDING",
+                alert.getVehiculeId(), e.getMessage());
+
+        String typeG9;
+        switch (alert.getTypeAlert()) {
+            case TEMPERATURE_CRITIQUE:
+            case CARBURANT_CRITIQUE:
+            case FREINAGE_BRUSQUE:
+            case IMMOBILISATION:
+                typeG9 = "PANNE_VEHICULE";
+                break;
+            case RETARD_HORAIRE:
+                typeG9 = "RETARD";
+                break;
+            case DEVIATION_ITINERAIRE:
+                typeG9 = "AUTRE";
+                break;
+            case VITESSE_EXCESSIVE:
+            default:
+                typeG9 = "SECURITE";
+                break;
+        }
+
+        String graviteG9;
+        switch (alert.getSeverite()) {
+            case MOYENNE:
+                graviteG9 = "MOYEN";
+                break;
+            case HAUTE:
+                graviteG9 = "ELEVE";
+                break;
+            case CRITIQUE:
+                graviteG9 = "CRITIQUE";
+                break;
+            case FAIBLE:
+            default:
+                graviteG9 = "FAIBLE";
+                break;
+        }
+
+        PendingIncident incident = PendingIncident.builder()
+                .vehiculeId(alert.getVehiculeId().toString())
+                .typeIncident(typeG9)
+                .gravite(graviteG9)
+                .description(alert.getMessage())
+                .latitude(alert.getLatitude())
+                .longitude(alert.getLongitude())
+                .dateDetection(alert.getTimestampDebut().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")))
+                .createdAt(LocalDateTime.now())
+                .status(AlertStatus.PENDING)
+                .tentatives(0)
+                .build();
+
+        pendingIncidentRepository.save(incident);
+        log.info("[Kafka][FALLBACK] Incident G9 sauvegardé en DB avec id={} (sera renvoyé automatiquement)", incident.getId());
     }
 }
