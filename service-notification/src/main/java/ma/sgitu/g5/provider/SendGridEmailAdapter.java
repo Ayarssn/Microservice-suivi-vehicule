@@ -18,6 +18,7 @@ import ma.sgitu.g5.dto.response.SendResultDTO;
 public class SendGridEmailAdapter implements IEmailProvider {
     private final JavaMailSender mailSender;
 
+
     @Value("${spring.mail.from:noreply@sgitu.ma}")
     private String fromAddress;
 
@@ -39,6 +40,15 @@ public class SendGridEmailAdapter implements IEmailProvider {
             SendResultDTO result = new SendResultDTO();
             result.setSuccess(false);
             result.setErrorCode("EMAIL_MISSING");
+            result.setRetryCount(0);
+            return result;
+        }
+
+        if (mailSender == null) {
+            log.warn("[G5-EMAIL] Aucun serveur mail configuré (MAIL_HOST vide) — notification ignorée pour {}", to);
+            SendResultDTO result = new SendResultDTO();
+            result.setSuccess(false);
+            result.setErrorCode("MAIL_NOT_CONFIGURED");
             result.setRetryCount(0);
             return result;
         }
