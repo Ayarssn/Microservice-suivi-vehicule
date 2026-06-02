@@ -15,10 +15,13 @@ public interface AlertRepository extends JpaRepository<Alert, UUID> {
 
     // ========== REQUête DE DéDUPLICATION (la plus importante) ==========
     // Vérifie si une alerte OUVERTE existe déjà pour ce vehiculeId + typeAlert
-    Optional<Alert> findByVehiculeIdAndTypeAlertAndStatut(UUID vehiculeId, Alert.TypeAlert typeAlert, Alert.StatutAlert statut);
+    List<Alert> findByVehiculeIdAndTypeAlertAndStatutOrderByTimestampDebutDesc(
+            UUID vehiculeId, Alert.TypeAlert typeAlert, Alert.StatutAlert statut);
 
     default Optional<Alert> findActiveByVehiculeIdAndTypeAlert(UUID vehiculeId, Alert.TypeAlert typeAlert) {
-        return findByVehiculeIdAndTypeAlertAndStatut(vehiculeId, typeAlert, Alert.StatutAlert.OUVERTE);
+        return findByVehiculeIdAndTypeAlertAndStatutOrderByTimestampDebutDesc(
+                vehiculeId, typeAlert, Alert.StatutAlert.OUVERTE
+        ).stream().findFirst();
     }
 
     // ========== ALERTES PAR VÉHICULE ==========
