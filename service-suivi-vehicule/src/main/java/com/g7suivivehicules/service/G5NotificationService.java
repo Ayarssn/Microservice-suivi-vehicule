@@ -68,8 +68,7 @@ public class G5NotificationService {
                 .metadata(metadata)
                 .build();
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpHeaders headers = buildG5Headers();
         HttpEntity<G5NotificationRequest> entity = new HttpEntity<>(request, headers);
 
         // L'exception remonte librement → Resilience4j déclenche Retry puis Fallback
@@ -163,8 +162,7 @@ public class G5NotificationService {
                 .metadata(metadata)
                 .build();
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpHeaders headers = buildG5Headers();
         HttpEntity<G5NotificationRequest> entity = new HttpEntity<>(request, headers);
 
         // L'exception remonte librement → Resilience4j déclenche Retry puis Fallback
@@ -197,8 +195,7 @@ public class G5NotificationService {
                 .metadata(metadata)
                 .build();
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpHeaders headers = buildG5Headers();
         HttpEntity<G5NotificationRequest> entity = new HttpEntity<>(request, headers);
 
         // L'exception remonte librement → Resilience4j déclenche Retry puis Fallback
@@ -255,6 +252,45 @@ public class G5NotificationService {
         log.info("[G5][FALLBACK] Log admin sauvegardé en DB avec id={}", pending.getId());
 
         return CompletableFuture.completedFuture(null);
+    }
+
+    private HttpHeaders buildG5Headers() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        
+        org.springframework.web.context.request.ServletRequestAttributes attributes = 
+                (org.springframework.web.context.request.ServletRequestAttributes) 
+                org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        
+        if (attributes != null) {
+            jakarta.servlet.http.HttpServletRequest request = attributes.getRequest();
+            if (request != null) {
+                String jwt = request.getHeader("Authorization");
+                if (jwt != null) {
+                    headers.set("Authorization", jwt);
+                }
+                String email = request.getHeader("X-User-Email");
+                if (email != null) {
+                    headers.set("X-User-Email", email);
+                }
+                String userId = request.getHeader("X-User-Id");
+                if (userId != null) {
+                    headers.set("X-User-Id", userId);
+                }
+                String roles = request.getHeader("X-Roles");
+                if (roles != null) {
+                    headers.set("X-Roles", roles);
+                }
+            }
+        }
+        
+        // Si aucun contexte de requête active, injecter une identité système par défaut
+        if (!headers.containsKey("X-User-Id") && !headers.containsKey("X-User-Email")) {
+            headers.set("X-User-Id", "system-g7");
+            headers.set("X-Roles", "ROLE_G7_SERVICE");
+        }
+        
+        return headers;
     }
 
     private String determinePriorityFromLogLevel(String logLevel) {

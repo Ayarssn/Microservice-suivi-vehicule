@@ -97,6 +97,8 @@ public class RetryScheduler {
 
                 HttpHeaders headers = new HttpHeaders();
                 headers.setContentType(MediaType.APPLICATION_JSON);
+                headers.set("X-User-Id", "system-g7-scheduler");
+                headers.set("X-Roles", "ROLE_G7_SERVICE");
                 HttpEntity<G5NotificationRequest> entity = new HttpEntity<>(request, headers);
 
                 restTemplate.postForEntity(g5Url, entity, String.class);
