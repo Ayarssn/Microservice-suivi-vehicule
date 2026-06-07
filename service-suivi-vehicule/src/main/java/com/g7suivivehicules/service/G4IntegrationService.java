@@ -213,9 +213,11 @@ public class G4IntegrationService {
             }
         }
         
-        // In case no active request (e.g. background/test context), set a default auth header if none is present
-        if (!headers.containsKey("Authorization")) {
-            headers.set("Authorization", "Bearer mock-system-g7-token");
+        // In case no active request (e.g. background/test context), set default inter-service auth headers
+        if (!headers.containsKey("X-User-Id")) {
+            headers.set("X-User-Id", "system-g7");
+            headers.set("X-User-Email", "system@g7.com");
+            headers.set("X-Roles", "DISPATCHER"); // G4 accepts DISPATCHER for read access
         }
         
         return headers;
