@@ -42,15 +42,7 @@ public class VehiculeService {
         VehiculeResponse response = mapToResponse(saved);
 
         // Publication Kafka — notifie G4 et G8 de l'existence du nouveau véhicule
-        VehiculeRegisteredEvent event = VehiculeRegisteredEvent.builder()
-                .vehiculeId(saved.getId())
-                .immatriculation(saved.getImmatriculation())
-                .type(saved.getType())
-                .ligne(saved.getLigne())
-                .statut(saved.getStatut())
-                .conducteurId(saved.getConducteurId())
-                .createdAt(java.time.LocalDateTime.now())
-                .build();
+        VehiculeRegisteredEvent event = VehiculeRegisteredEvent.fromEntity(saved);
         kafkaProducerService.publierVehiculeEnregistre(event);
 
         // Notification G5 pour le conducteur/admin

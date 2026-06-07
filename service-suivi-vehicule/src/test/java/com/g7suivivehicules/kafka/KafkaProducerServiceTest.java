@@ -44,8 +44,10 @@ class KafkaProducerServiceTest {
         VehiculeRegisteredEvent event = VehiculeRegisteredEvent.builder()
                 .vehiculeId(vehiculeId)
                 .immatriculation("BUS-G7-123")
-                .type(Vehicule.TypeVehicule.BUS)
+                .type(Vehicule.TypeVehicule.BUS.name())
                 .ligne("G4")
+                .statut(Vehicule.StatutVehicule.DISPONIBLE.name())
+                .timestamp(java.time.LocalDateTime.now().atZone(java.time.ZoneOffset.UTC).toInstant().toString())
                 .build();
 
         RecordMetadata metadata = new RecordMetadata(
