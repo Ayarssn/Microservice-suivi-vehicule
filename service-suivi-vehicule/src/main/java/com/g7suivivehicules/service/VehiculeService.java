@@ -1,11 +1,14 @@
 package com.g7suivivehicules.service;
 
+import com.g7suivivehicules.dto.G8VehiculeStatusDTO;
 import com.g7suivivehicules.dto.VehiculeRequest;
 import com.g7suivivehicules.dto.VehiculeResponse;
 import com.g7suivivehicules.dto.VehiculeRegisteredEvent;
+import com.g7suivivehicules.entity.PositionGPS;
 import com.g7suivivehicules.entity.Vehicule;
 import com.g7suivivehicules.exception.VehiculeNotFoundException;
 import com.g7suivivehicules.kafka.KafkaProducerService;
+import com.g7suivivehicules.repository.PositionGPSRepository;
 import com.g7suivivehicules.repository.VehiculeRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -13,7 +16,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -23,6 +29,7 @@ import java.util.stream.Collectors;
 public class VehiculeService {
 
     private final VehiculeRepository vehiculeRepository;
+    private final PositionGPSRepository positionGPSRepository;
     private final KafkaProducerService kafkaProducerService;
     private final G5NotificationService g5NotificationService;
 
@@ -90,6 +97,7 @@ public class VehiculeService {
                 .orElseThrow(() -> new VehiculeNotFoundException(id));
         vehicule.setStatut(Vehicule.StatutVehicule.HORS_SERVICE);
         vehiculeRepository.save(vehicule);
+        sendStatusToG8(vehicule);
     }
 
     public List<VehiculeResponse> getVehiculesActifs() {
@@ -115,7 +123,24 @@ public class VehiculeService {
         Vehicule vehicule = vehiculeRepository.findById(id)
                 .orElseThrow(() -> new VehiculeNotFoundException(id));
         vehicule.setStatut(statut);
-        return mapToResponse(vehiculeRepository.save(vehicule));
+        Vehicule saved = vehiculeRepository.save(vehicule);
+        sendStatusToG8(saved);
+        return mapToResponse(saved);
+    }
+
+    private void sendStatusToG8(Vehicule vehicule) {
+        Optional<PositionGPS> lastPositionOpt = positionGPSRepository.findTopByVehiculeIdOrderByTimestampDesc(vehicule.getId());
+        String g8Status = vehicule.getStatut() == Vehicule.StatutVehicule.EN_SERVICE 
+            ? "in_service" 
+            : "out_of_service";
+        G8VehiculeStatusDTO g8StatusDto = G8VehiculeStatusDTO.builder()
+                .timestamp(LocalDateTime.now().atZone(ZoneOffset.UTC).toInstant().toString())
+                .vehicleId(vehicule.getImmatriculation())
+                .status(g8Status)
+                .delayMinutes(0)
+                .speed(lastPositionOpt.map(PositionGPS::getVitesse).orElse(null))
+                .build();
+        kafkaProducerService.envoyerStatusG8(g8StatusDto);
     }
 
     private VehiculeResponse mapToResponse(Vehicule vehicule) {

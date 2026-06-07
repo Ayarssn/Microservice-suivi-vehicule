@@ -32,3 +32,5 @@ build/
 ### VS Code ###
 .vscode/
 docker-compose-test.yml
+scripts/deploy-g7-k8s.ps1
+K8S_DEPLOYMENT_GUIDE.md
