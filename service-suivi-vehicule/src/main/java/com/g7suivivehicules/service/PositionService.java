@@ -1,8 +1,10 @@
 package com.g7suivivehicules.service;
 
+import com.g7suivivehicules.dto.G8VehiculeStatusDTO;
 import com.g7suivivehicules.dto.PositionGPSRequest;
 import com.g7suivivehicules.dto.PositionGPSResponse;
 import com.g7suivivehicules.entity.PositionGPS;
+import com.g7suivivehicules.entity.Vehicule;
 import com.g7suivivehicules.exception.PositionNotFoundException;
 import com.g7suivivehicules.repository.PositionGPSRepository;
 import com.g7suivivehicules.repository.VehiculeRepository;
@@ -11,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -42,12 +45,26 @@ public class PositionService {
                 PositionGPS saved = positionRepository.save(position);
 
                 // Récupération de la ligne du véhicule pour G4
-                String ligneId = vehiculeRepository.findById(request.getVehiculeId())
-                                .map(v -> v.getLigne())
-                                .orElse("NON_ASSIGNE");
+                Vehicule vehicule = vehiculeRepository.findById(request.getVehiculeId()).orElse(null);
+                String ligneId = vehicule != null ? vehicule.getLigne() : "NON_ASSIGNE";
 
                 // Publier sur Kafka pour G4 (Suivi temps réel)
                 kafkaProducerService.envoyerPositionG4(saved, ligneId);
+
+                // Publier statut sur Kafka pour G8 (Analytique)
+        log.info("[PositionService] Checking if we should send to G8: vehicule={}", vehicule);
+        if (vehicule != null) {
+            String g8Status = vehicule.getStatut() == Vehicule.StatutVehicule.EN_SERVICE ? "in_service" : "out_of_service";
+            G8VehiculeStatusDTO g8StatusDto = G8VehiculeStatusDTO.builder()
+                    .timestamp(saved.getTimestamp().atZone(ZoneOffset.UTC).toInstant().toString())
+                    .vehicleId(vehicule.getImmatriculation())
+                    .status(g8Status)
+                    .delayMinutes(0) // À implémenter si nécessaire
+                    .speed(saved.getVitesse())
+                    .build();
+            log.info("[PositionService] Sending to G8: {}", g8StatusDto);
+            kafkaProducerService.envoyerStatusG8(g8StatusDto);
+        }
 
                 // Déclenchement de la détection d'anomalies
                 anomalyDetectionService.detecterAnomalies(saved, null);
